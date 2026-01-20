@@ -26,6 +26,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 import pytesseract
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 from PIL import Image
 import cv2
 from PyPDF2 import PdfReader
