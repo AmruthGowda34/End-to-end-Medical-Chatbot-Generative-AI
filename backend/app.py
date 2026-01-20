@@ -29,7 +29,7 @@ import pytesseract
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 from PIL import Image
 import cv2
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 import smtplib
 from email.mime.text import MIMEText
