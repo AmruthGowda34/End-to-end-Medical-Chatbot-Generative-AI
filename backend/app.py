@@ -58,6 +58,8 @@ from twilio.base.exceptions import TwilioRestException
 app = Flask(__name__, static_folder="static", template_folder="templates")
 CORS(app)
 
+
+
 UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -159,7 +161,12 @@ def initialize_rag_once(force=False):
             _rag_init_error = str(e)
             _rag_initialized = False
             logger.exception("RAG initialization failed: %s", e)
-            
+
+# 🔥 FORCE RAG INIT FOR RENDER / GUNICORN
+try:
+    initialize_rag_once()
+except Exception as e:
+    logger.exception("RAG init failed at startup: %s", e)
             
 
 # ---------------- GitHub Model caller (no OpenAI) ----------------
@@ -621,6 +628,7 @@ def find_chat(chats, chat_id):
             return c
     return None
 
+
 # ---------------- Web UI routes (unchanged) ----------------
 @app.route("/",methods=["GET", "POST"])
 def index():
@@ -1059,11 +1067,5 @@ def whatsapp_webhook():
 
 # ---------------- run ----------------
 if __name__ == "__main__":
-    # Optionally force RAG init at startup
-    try:
-        initialize_rag_once()
-    except Exception:
-        logger.exception("Startup RAG init failed (continuing without it)")
-
     port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=True)

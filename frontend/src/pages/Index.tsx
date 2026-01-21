@@ -37,9 +37,9 @@ const Index = () => {
   /* ---------- auto scroll ---------- */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeChat?.messages]);
+  }, [activeChat?.messages, isLoading]);
 
-  /* ---------- SEND MESSAGE (SAFE & GUARANTEED) ---------- */
+  /* ---------- SEND MESSAGE (MATCHES BACKEND) ---------- */
   const handleSendMessage = async (content: string, file?: File) => {
     let chatId = activeChatId;
 
@@ -47,36 +47,40 @@ const Index = () => {
       chatId = createNewChat();
     }
 
-    // show user message immediately
-    addMessage(chatId, { content, role: "user" });
+    // 1️⃣ Add user message immediately
+    addMessage(chatId, {
+      id: crypto.randomUUID(),
+      content,
+      role: "user",
+    });
+
     setIsLoading(true);
 
     try {
-      const response = await sendMessage(content, file);
+      // 2️⃣ Backend returns PLAIN STRING
+      const answer = await sendMessage(content, file);
 
-      // normalize response
-      const answer =
-        typeof response === "string"
-          ? response.trim()
-          : response?.answer?.trim?.();
-
-      if (!answer) {
+      if (!answer || !answer.trim()) {
         throw new Error("Empty response from backend");
       }
 
+      // 3️⃣ Add assistant message
       addMessage(chatId, {
-        content: answer,
+        id: crypto.randomUUID(),
+        content: answer.trim(),
         role: "assistant",
       });
     } catch (error) {
       console.error("❌ Chat error:", error);
 
       addMessage(chatId, {
+        id: crypto.randomUUID(),
         content:
           "⚠ The medical assistant could not generate a response. Please try rephrasing your question.",
         role: "assistant",
       });
     } finally {
+      // 4️⃣ Always stop loader
       setIsLoading(false);
     }
   };
