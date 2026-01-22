@@ -11,7 +11,7 @@ import { TypingIndicator } from "@/components/TypingIndicator";
 
 import { useChatStore } from "@/hooks/useChatStore";
 import { useTheme } from "@/hooks/useTheme";
-import { sendMessage } from "@/lib/api";
+import { sendMessage, createChat } from "@/lib/api";
 
 const Index = () => {
   const {
@@ -19,11 +19,10 @@ const Index = () => {
     activeChat,
     activeChatId,
     setActiveChatId,
-    createNewChat,
     deleteChat,
-    addMessage,
     deleteMessage,
     searchChats,
+    setChatFromBackend,
   } = useChatStore();
 
   const { theme, toggleTheme } = useTheme();
@@ -34,59 +33,70 @@ const Index = () => {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  /* ---------- auto scroll ---------- */
+  /* ---------------- Auto scroll ---------------- */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [activeChat?.messages, isLoading]);
 
-  /* ---------- SEND MESSAGE (MATCHES BACKEND) ---------- */
-  const handleSendMessage = async (content: string, file?: File) => {
-    let chatId = activeChatId;
-
-    if (!chatId) {
-      chatId = createNewChat();
+  /* ---------------- NEW CHAT ---------------- */
+  const handleNewChat = async () => {
+    try {
+      const chat = await createChat();
+      setChatFromBackend(chat);
+      setSidebarOpen(false);
+    } catch (err) {
+      console.error("Failed to create new chat", err);
     }
+  };
 
-    // 1️⃣ Add user message immediately
-    addMessage(chatId, {
-      id: crypto.randomUUID(),
-      content,
-      role: "user",
-    });
+  /* ---------------- SEND MESSAGE (OPTIMISTIC) ---------------- */
+  const handleSendMessage = async (content: string, file?: File) => {
+    if (!content.trim() && !file) return;
 
     setIsLoading(true);
+    let chatId = activeChatId;
 
     try {
-      // 2️⃣ Backend returns PLAIN STRING
-      const answer = await sendMessage(content, file);
-
-      if (!answer || !answer.trim()) {
-        throw new Error("Empty response from backend");
+      /* 1️⃣ Ensure chat exists */
+      if (!chatId) {
+        const newChat = await createChat();
+        setChatFromBackend(newChat);
+        chatId = newChat.id;
       }
 
-      // 3️⃣ Add assistant message
-      addMessage(chatId, {
-        id: crypto.randomUUID(),
-        content: answer.trim(),
-        role: "assistant",
+      /* 2️⃣ INSTANT UI UPDATE (NO FREEZE) */
+      setChatFromBackend({
+        id: chatId,
+        title: activeChat?.title || "New Chat",
+        createdAt: activeChat?.createdAt || new Date(),
+        updatedAt: new Date(),
+        messages: [
+          ...(activeChat?.messages || []),
+          {
+            id: crypto.randomUUID(),
+            role: "user",
+            content,
+            timestamp: new Date(),
+          },
+        ],
       });
-    } catch (error) {
-      console.error("❌ Chat error:", error);
 
-      addMessage(chatId, {
-        id: crypto.randomUUID(),
-        content:
-          "⚠ The medical assistant could not generate a response. Please try rephrasing your question.",
-        role: "assistant",
-      });
+      /* 3️⃣ Backend call (slow part) */
+      const response = await sendMessage(chatId, content, file);
+
+      /* 4️⃣ Replace with backend truth */
+      setChatFromBackend(response.chat);
+
+    } catch (error) {
+      console.error("Chat error:", error);
     } finally {
-      // 4️⃣ Always stop loader
       setIsLoading(false);
     }
   };
 
+  /* ---------------- WELCOME CARD FIX ---------------- */
   const handleSuggestionClick = (text: string) => {
-    handleSendMessage(text);
+    handleSendMessage(`Medical question: ${text}`);
   };
 
   return (
@@ -99,10 +109,7 @@ const Index = () => {
           setActiveChatId(id);
           setSidebarOpen(false);
         }}
-        onNewChat={() => {
-          createNewChat();
-          setSidebarOpen(false);
-        }}
+        onNewChat={handleNewChat}
         onDeleteChat={deleteChat}
         onOpenSettings={() => setSettingsOpen(true)}
         searchChats={searchChats}
@@ -113,7 +120,7 @@ const Index = () => {
       {/* Main */}
       <main className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="flex items-center gap-3 p-4 border-b border-border bg-background/50 backdrop-blur-xl">
+        <header className="flex items-center gap-3 p-4 border-b">
           <Button
             variant="ghost"
             size="icon"
@@ -129,17 +136,17 @@ const Index = () => {
         </header>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="flex-1 overflow-y-auto">
           {!activeChat || activeChat.messages.length === 0 ? (
             <WelcomeScreen onSuggestionClick={handleSuggestionClick} />
           ) : (
             <div className="max-w-4xl mx-auto p-4 space-y-4">
-              {activeChat.messages.map((message) => (
+              {activeChat.messages.map((msg) => (
                 <ChatMessage
-                  key={message.id}
-                  message={message}
+                  key={msg.id}
+                  message={msg}
                   onDelete={() =>
-                    deleteMessage(activeChat.id, message.id)
+                    deleteMessage(activeChat.id, msg.id)
                   }
                 />
               ))}

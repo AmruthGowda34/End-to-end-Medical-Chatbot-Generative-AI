@@ -58,8 +58,6 @@ from twilio.base.exceptions import TwilioRestException
 app = Flask(__name__, static_folder="static", template_folder="templates")
 CORS(app)
 
-
-
 UPLOAD_FOLDER = os.getenv("UPLOAD_FOLDER", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -161,12 +159,7 @@ def initialize_rag_once(force=False):
             _rag_init_error = str(e)
             _rag_initialized = False
             logger.exception("RAG initialization failed: %s", e)
-
-# 🔥 FORCE RAG INIT FOR RENDER / GUNICORN
-try:
-    initialize_rag_once()
-except Exception as e:
-    logger.exception("RAG init failed at startup: %s", e)
+            
             
 
 # ---------------- GitHub Model caller (no OpenAI) ----------------
@@ -323,8 +316,10 @@ def detect_intent(text: str):
         "symptom", "symptoms", "pain", "fever", "cough", "infection",
         "disease", "treatment", "cause", "diagnosis", "medicine",
         "tablet", "drug", "rash", "diarrhea", "asthma",
-        "diabetes", "heart", "skin", "typhoid"
-    ]
+        "diabetes", "heart", "skin", "typhoid","mental", "lifestyle", "health", "wellness",
+        "interaction", "interactions", "side effect",
+        "exercise", "diet", "stress"
+        ]
     if any(w in t for w in medical_words) or t.startswith(("what is", "explain")):
         return ("medical", None)
 
@@ -737,22 +732,30 @@ def api_add_message(chat_id):
     try:
         chats = load_chats()
         chat = find_chat(chats, chat_id)
+
         if not chat:
             return jsonify({"error": "Chat not found"}), 404
 
         text = request.form.get("msg", "").strip()
         file = request.files.get("image")
+
+        if not text and not file:
+            return jsonify({"error": "Empty message"}), 400
+
         local_image_path = None
         image_url = None
 
         if file:
-            filename = secure_filename(f"{chat_id}_{int(time.time())}_{file.filename}")
+            filename = secure_filename(
+                f"{chat_id}_{int(time.time())}_{file.filename}"
+            )
             filepath = os.path.join(app.config["UPLOAD_FOLDER"], filename)
             file.save(filepath)
             local_image_path = filepath
             image_url = f"/uploads/{filename}"
             logger.info("Saved uploaded image for chat %s -> %s", chat_id, filepath)
 
+        # 1️⃣ Append user message FIRST
         user_msg = {
             "id": str(uuid.uuid4()),
             "type": "user",
@@ -761,10 +764,15 @@ def api_add_message(chat_id):
             "time": datetime.datetime.utcnow().isoformat()
         }
         chat["messages"].append(user_msg)
-        if len(chat["messages"]) == 1 and text:
-            chat["title"] = text if len(text) <= 35 else text[:35] + "..."
 
-        answer = process_message_for_chat_history(text, local_image_path)
+        # 2️⃣ Set title on first message
+        if len(chat["messages"]) == 1 and text:
+            chat["title"] = text[:35] + "..." if len(text) > 35 else text
+
+        # 3️⃣ Generate response USING HISTORY
+        answer = process_message_for_chat_history(text,local_image_path)
+
+        # 4️⃣ Append bot message
         bot_msg = {
             "id": str(uuid.uuid4()),
             "type": "bot",
@@ -773,11 +781,13 @@ def api_add_message(chat_id):
             "time": datetime.datetime.utcnow().isoformat()
         }
         chat["messages"].append(bot_msg)
+
         save_chats(chats)
         return jsonify({"chat": chat})
+
     except Exception as e:
-        logger.exception("api_add_message error: %s", e)
-        return jsonify({"error": str(e)}), 500
+        logger.exception("api_add_message error")
+        return jsonify({"error": "Internal server error"}), 500
 
 # ---------------- Helper used by both endpoints ----------------
 def process_message_for_chat_history(text, image_path=None):
@@ -1067,5 +1077,12 @@ def whatsapp_webhook():
 
 # ---------------- run ----------------
 if __name__ == "__main__":
+    # 🔐 Prevent double initialization in Flask debug reloader
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        try:
+            initialize_rag_once()
+        except Exception:
+            logger.exception("Startup RAG init failed (continuing without it)")
+
     port = int(os.getenv("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=True)
