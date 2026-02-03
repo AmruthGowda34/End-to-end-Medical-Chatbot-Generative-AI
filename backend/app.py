@@ -1,3 +1,9 @@
+import warnings
+warnings.filterwarnings(
+    "ignore",
+    category=DeprecationWarning,
+    module="langchain"
+)
 import os
 import io
 import json
@@ -13,7 +19,6 @@ from gtts import gTTS
 from flask import send_file
 import tempfile
 from flask import abort
-
 
 from concurrent.futures import ThreadPoolExecutor
 
@@ -162,10 +167,9 @@ def initialize_rag_once(force=False):
             _rag_initialized = False
             logger.exception("RAG initialization failed: %s", e)
             
+# ---------------- GitHub Model caller (no OpenAI) ----------------
 with app.app_context():
     initialize_rag_once()
-
-# ---------------- GitHub Model caller (no OpenAI) ----------------
 
 
 def call_github_chat_model(system_message: str, user_message: str, model: str = CHAT_MODEL,
@@ -1080,5 +1084,10 @@ def whatsapp_webhook():
 
 # ---------------- run ----------------
 if __name__ == "__main__":
+    # if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+    #     try:
+    #         initialize_rag_once()
+    #     except Exception:
+    #         logger.exception("Startup RAG init failed (continuing without it)")
     port = int(os.getenv("PORT", 8080))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=True,use_reloader=False)
