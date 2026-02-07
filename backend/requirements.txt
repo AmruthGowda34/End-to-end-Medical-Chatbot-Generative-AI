@@ -14,6 +14,7 @@ langchain-huggingface==0.1.2
 # HuggingFace
 transformers==4.41.2
 sentence-transformers==2.6.1
+torch==2.2.2
 
 # Vector DB
 pinecone-client==3.2.2
